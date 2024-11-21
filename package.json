@@ -1,0 +1,36 @@
+{
+	"name": "npm-package-svn",
+	"version": "0.0.1",
+	"description": "npm can work with svn dependencies and tgz",
+	"author": "Amine El Khabli",
+	"license": "ISC",
+	"homepage": "https://github.com/icg-spa/npm-package-svn",
+	"bugs": {
+		"url": "https://github.com/icg-spa/npm-package-svn/issues"
+	},
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/icg-spa/npm-package-svn.git"
+	},
+	"keywords": [
+		"npm",
+		"svn",
+		"npm-svn",
+		"svn",
+		"dependencies",
+		"tgz"
+	],
+	"scripts": {
+		"install": "node scripts/install.js",
+		"uninstall": "node scripts/uninstall.js"
+	},
+	"dependencies": {
+		"async": "3.2.6",
+		"colors": "1.4.0",
+		"rimraf": "2.5.4",
+		"fs-extra": "^1.0.0",
+		"semver": "^5.3.0",
+		"uuid": "^3.0.0",
+		"xml2js": "^0.4.17"
+	}
+}
