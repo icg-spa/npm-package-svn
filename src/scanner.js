@@ -48,6 +48,7 @@ async.eachSeries(
 
 				if (!error) {
 					console.log(colors.green("\nInstalled ") + colors.yellow(svnDependency.name) + "|" + svnDependency.rev);
+					console.log("\n-------\n");
 				}
                 // Chiama il callback di `eachSeries` per passare alla prossima dipendenza
                 callback(error);
