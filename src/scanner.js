@@ -29,7 +29,7 @@ Object.keys(svnDependencies).forEach(
 numDependencies = Object.keys(svnDependencyObject).length;
 
 async.eachSeries(
-    Object.values(svnDependencyObject), // Array di dipendenze
+    Object.values(svnDependencyObject),
     function (svnDependency, callback) {
         async.series(
             [
@@ -38,19 +38,16 @@ async.eachSeries(
                 cleanup(svnDependency),
                 update(svnDependency),
                 cleanup(svnDependency),
-                npmInstall(svnDependency)
+                writeToCache(svnDependency)
             ],
             function (error) {
                 if (error) {
-					console.log(colors.red("Failed to install " + svnDependency.name));
-					errors.push(svnDependency.name + " (" + error + ")");
-				}
-
-				if (!error) {
-					console.log(colors.green("\nInstalled ") + colors.yellow(svnDependency.name) + "|" + svnDependency.rev);
-					console.log("\n-------\n");
-				}
-                // Chiama il callback di `eachSeries` per passare alla prossima dipendenza
+                    console.log(colors.red("Failed to process " + svnDependency.name));
+                    errors.push(svnDependency.name + " (" + error + ")");
+                } else {
+                    console.log(colors.green("\nProcessed ") + colors.yellow(svnDependency.name));
+					console.log("\n----------\n");
+                }
                 callback(error);
             }
         );
@@ -60,73 +57,167 @@ async.eachSeries(
             console.error("Errore generale durante il processo:", error);
         } else {
             console.log("Tutte le dipendenze sono state elaborate con successo.");
+			console.log("\n--------------\n");
+			copyTgzFile();
+			console.log("\n--------------\n");
+            installAllPackages();
         }
-        writeBufferToCache();
     }
 );
+
+function copyTgzFile() {
+	const targetPath = path.resolve(rootDir, ".icg-package");
+	// --- creo la cartella .icg-package
+	if (!fs.existsSync(targetPath)) {
+		fs.mkdirSync(targetPath);
+	}
+
+	console.log("Eseguo la copia dei file .tgz nella cartella .icg-package");
+	console.log("\n--------------\n");
+	Object.values(svnDependencyObject).forEach(
+		function (svnDependency) {
+			const sourcePath = path.resolve(rootDir, svnDependency.installDir);
+
+			const files = fs.readdirSync(sourcePath);
+			files.forEach(
+				function (file) {
+					const filePath = path.join(sourcePath, file);
+					const stats = fs.statSync(filePath);
+					if (stats.isFile() && file.endsWith(".tgz")) {
+						const targetFilePath = path.join(targetPath, file);
+						fs.copyFileSync(filePath, targetFilePath);
+					}
+				}
+			);
+		}
+	)
+}
+function installAllPackages() {
+
+	console.log(colors.bgWhite.black("START Installing all packages from .icg-package"));
+
+	const packageDir = path.resolve("node_modules/.icg-package");
+
+    // Trova tutti i file .tgz nella directory
+    const tgzFiles = fs.readdirSync(packageDir)
+        .filter(file => file.endsWith(".tgz"))
+        .map(file => path.join(packageDir, file));
+
+    if (tgzFiles.length === 0) {
+        console.error(colors.red("Nessun file .tgz trovato nella directory: "), packageDir);
+        return;
+    }
+
+    console.log(colors.bgWhite.black("Installing all packages from: "), tgzFiles.join(" "));
+
+    // Crea il comando per installare tutti i file .tgz
+    const command = `npm install ${tgzFiles.join(" ")} --no-save --no-package-lock --legacy-peer-deps`;
+
+	console.log(colors.bgWhite.black("Installing command -> "), command);
+    child_process.exec(command, { stdio: "inherit" }, (error) => {
+        if (error) {
+            console.error(colors.red("Installazione pacchetti fallita: "), error);
+        } else {
+			console.log("\n--------------\n");
+            console.log(colors.green("Tutti i pacchetti sono stati installati correttamente."));
+			console.log("\n--------------\n");
+			cleanPackages();
+        }
+    });
+}
+
+function cleanPackages() {
+	console.log("Eseguo pulizia dei packages");
+	console.log("\n--------------\n");
+	Object.values(svnDependencyObject).forEach(
+		function (svnDependency) {
+			const packagePath = path.resolve(rootDir, svnDependency.installDir);
+			console.log(colors.yellow("Pulizia della cartella: "), packagePath);
+
+			// --- elimino cartella della dipendenza
+			rimraf(packagePath, function (error) {
+					if (error) {
+						console.error(colors.red("Errore durante l'eliminazione della directory: "), packagePath);
+					}
+				}
+			)
+		}
+	)
+
+	const packageDir = path.resolve("node_modules/.icg-package");
+
+	console.log(colors.yellow("Pulizia packageDir: "), packageDir);
+	console.log("\n--------------\n");
+	rimraf(packageDir, function (error) {
+			if (error) {
+				console.error(colors.red("Errore durante l'eliminazione della directory: "), packageDir);
+			}
+		}
+	)
+	console.log("\n--------------\n");
+}
 
 function mkdirs(svnDependency) {
     return function (callback) {
         if (svnDependency.latest) {
-			callback(null);
-		} else async.waterfall(
-			[
+            callback(null);
+        } else async.waterfall(
+            [
                 function (callback) {
-					// --- controllo se esiste la cartella node_modules
-					let pathNodeModule = rootDir
-					if(rootDir.indexOf(nodeModulesDir) < 0){
-						pathNodeModule = path.resolve(rootDir, nodeModulesDir)
-					}
+                    // Controlla se esiste node_modules
+                    let pathNodeModule = rootDir;
+                    if (rootDir.indexOf(nodeModulesDir) < 0) {
+                        pathNodeModule = path.resolve(rootDir, nodeModulesDir);
+                    }
                     fs.access(
-						pathNodeModule,
-						fs.constants.F_OK,
-						function (error) {
-                        	callback(null, !error);
-                    	}
-					);
+                        pathNodeModule,
+                        fs.constants.F_OK,
+                        function (error) {
+                            callback(null, !error);
+                        }
+                    );
                 },
                 function (exists, callback) {
-					// --- se non esiste creo la cartella node_modules
-                    if (!exists){
-
-						let pathNodeModule = rootDir
-						if(rootDir.indexOf(nodeModulesDir) < 0){
-							pathNodeModule = path.resolve(rootDir, nodeModulesDir)
-						}
+                    // Crea node_modules se non esiste
+                    if (!exists) {
+                        let pathNodeModule = rootDir;
+                        if (rootDir.indexOf(nodeModulesDir) < 0) {
+                            pathNodeModule = path.resolve(rootDir, nodeModulesDir);
+                        }
                         fs.mkdir(
-							pathNodeModule,
-							function (error) {
-                            	callback(error);
-                        	}
-						);
-					} else {
+                            pathNodeModule,
+                            function (error) {
+                                callback(error);
+                            }
+                        );
+                    } else {
                         callback(null);
-					}
+                    }
                 },
                 function (callback) {
-					// --- controllo se esiste la cartella del modulo
-					const pathModule = path.resolve(rootDir, svnDependency.installDir)
-					fs.access(
-						pathModule,
-						fs.constants.F_OK,
-						function (error) {
-                        	callback(null, !error);
-                    	}
-					);
+                    // Controlla se esiste la directory del modulo
+                    const pathModule = path.resolve(rootDir, svnDependency.installDir);
+                    fs.access(
+                        pathModule,
+                        fs.constants.F_OK,
+                        function (error) {
+                            callback(null, !error);
+                        }
+                    );
                 },
                 function (exists, callback) {
-					// --- se esiste la cancello
-                    if (exists){
-						const pathModule = path.resolve(rootDir, svnDependency.installDir)
+                    // Elimina solo se necessario (es. aggiornamenti SVN)
+                    if (exists) {
+                        const pathModule = path.resolve(rootDir, svnDependency.installDir);
                         rimraf(
-							pathModule,
-							function (error) {
-                            	callback(error);
-                        	}
-						);
-					} else {
-						callback(null);
-					}
+                            pathModule,
+                            function (error) {
+                                callback(error);
+                            }
+                        );
+                    } else {
+                        callback(null);
+                    }
                 }
             ],
             function (error) {
@@ -154,6 +245,7 @@ function buildDepObj(svnDependency, packageJsonDeps) {
     out.COPath = out.repo;
 
     out.installDir = "."+out.name+"-package";
+	// out.installDir = ".icg-package";
 
 	return out;
 }
@@ -222,31 +314,6 @@ function update(svnDependency) {
 				return callback(error ? result : null)
         	}
 		)
-		// --- svn ultimate
-		// const svnOption = {
-		// 	trustServerCert: true,	// same as --trust-server-cert
-		// 	username: svnOptions.username,	// same as --username
-		// 	password: svnOptions.password,	// same as --password
-		// 	quiet: true,			// provide --quiet to commands that accept it
-		// 	force: true,			// provide --force to commands that accept it
-		// 	revision: svnDependency.rev,		// provide --revision to commands that accept it,
-		// 	ignoreExternals: false,
-		// 	depth: ''
-		// }
-		// return svnCommand.commands.update(
-		// 	svnPath,
-		// 	svnOption,
-		// 	function (error) {
-		// 		console.log(
-		// 			colors.magenta("Update finished!"),
-		// 			colors.yellow(svnDependency.name),
-		// 			"rev=" + svnDependency.rev,
-		// 			"installDirPath=", svnPath
-		// 		)
-
-		// 		return callback(error || null)
-		// 	}
-		// )
     }
 }
 
@@ -279,61 +346,58 @@ function cleanup(svnDependency) {
 
 function npmInstall(svnDependency) {
     return function (callback) {
+        const env = { ...process.env };
 
-		const eKeys = Object.keys(process.env), env = {};
-		let i;
+        console.log(colors.bgWhite.black("Running `npm install` on "), svnDependency.name, "...");
 
-		console.log(colors.bgWhite.black("Running `npm install` on "), svnDependency.name, "...");
+        const directoryPath = path.normalize(path.join(rootDir, svnDependency.installDir));
 
-
-        for (i = eKeys.length; i--;) {
-            if (!/^npm_/i.test(eKeys[i])) {
-                env[eKeys[i]] = process.env[eKeys[i]];
+        // Trova il file .tgz nella directory del pacchetto
+        let fileTgz = "";
+        const files = fs.readdirSync(directoryPath);
+        files.forEach((file) => {
+            const filePath = path.join(directoryPath, file);
+            const stats = fs.statSync(filePath);
+            if (stats.isFile() && file.endsWith(".tgz")) {
+                fileTgz = filePath;
             }
+        });
+
+        if (!fileTgz) {
+            console.error(colors.red("No .tgz file found in " + directoryPath));
+            return callback("No .tgz file found");
         }
 
-		const directoryPath = path.normalize(path.join(rootDir, svnDependency.installDir))
+        console.log(colors.bgWhite.blue("Install command = npm install --no-save --no-package-lock --legacy-peer-deps " + fileTgz));
 
-		console.log(colors.bgWhite.blue("START Install " + directoryPath));
+        child_process.exec(
+            `npm install ${fileTgz} --no-save --no-package-lock --legacy-peer-deps`,
+            {
+                stdio: "inherit",
+                cwd: appDir,
+                env: env
+            },
+            function (error) {
+                if (error) {
+                    console.error(colors.red("Install failed for " + svnDependency.name + ": " + error));
+                } else {
+                    console.log(colors.green(`Pacchetto ${svnDependency.name} installato correttamente.`));
+                }
 
-		let fileTgz = ""
-		const files = fs.readdirSync(directoryPath);
-		files.forEach(
-			(file) => {
-				const filePath = path.join(directoryPath, file);
-				const stats = fs.statSync(filePath);
-				if (stats.isFile()) {
-					fileTgz = filePath
-				}
-			}
-		);
+                // Verifica se il pacchetto è presente in node_modules/@icg/<name>
+                const targetPath = path.join(appDir, "node_modules", "@icg", svnDependency.name);
+                if (!fs.existsSync(targetPath)) {
+                    console.error(colors.red(`Pacchetto ${svnDependency.name} non trovato in ${targetPath}`));
+                } else {
+                    console.log(colors.green(`Pacchetto ${svnDependency.name} presente in ${targetPath}`));
+                }
 
-		console.log(colors.bgWhite.blue("Install command = npm install --no-save --no-package-lock --legacy-peer-deps " + fileTgz));
-
-		child_process.exec(
-			"npm install --no-save --no-package-lock --legacy-peer-deps " + fileTgz,
-			{
-				stdio: "inherit",
-				cwd: appDir,
-				env: env
-			},
-			function (error) {
-				console.log(colors.bgWhite.blue("Install finished, " + fileTgz));
-				if(error) {
-					console.log(colors.red("Install failed! " + error));
-
-				}
-				const pathModule = path.resolve(rootDir, svnDependency.installDir)
-				rimraf(
-					pathModule,
-					function (error) {
-						callback(error ? "npm install failed" : null);
-					}
-				);
-			}
-		);
+                callback(error ? "npm install failed" : null);
+            }
+        );
     };
 }
+
 
 function info(svnDependency, callback) {
     return function (error) {
