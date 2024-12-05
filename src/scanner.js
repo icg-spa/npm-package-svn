@@ -28,23 +28,40 @@ Object.keys(svnDependencies).forEach(
 
 numDependencies = Object.keys(svnDependencyObject).length;
 
-async.each(svnDependencyObject,
-	function (svnDependency, callback) {
-		async.series(
-			[
-				mkdirs(svnDependency),
-				checkout(svnDependency),
-				cleanup(svnDependency),
-				update(svnDependency),
-				cleanup(svnDependency),
-				npmInstall(svnDependency)
-			],
-			info(svnDependency, callback)
-		);
-	},
-	function () {
-    	writeBufferToCache();
-	}
+async.eachSeries(
+    Object.values(svnDependencyObject), // Array di dipendenze
+    function (svnDependency, callback) {
+        async.series(
+            [
+                mkdirs(svnDependency),
+                checkout(svnDependency),
+                cleanup(svnDependency),
+                update(svnDependency),
+                cleanup(svnDependency),
+                npmInstall(svnDependency)
+            ],
+            function (error) {
+                if (error) {
+					console.log(colors.red("Failed to install " + svnDependency.name));
+					errors.push(svnDependency.name + " (" + error + ")");
+				}
+
+				if (!error) {
+					console.log(colors.green("\nInstalled ") + colors.yellow(svnDependency.name) + "|" + svnDependency.rev);
+				}
+                // Chiama il callback di `eachSeries` per passare alla prossima dipendenza
+                callback(error);
+            }
+        );
+    },
+    function (error) {
+        if (error) {
+            console.error("Errore generale durante il processo:", error);
+        } else {
+            console.log("Tutte le dipendenze sono state elaborate con successo.");
+        }
+        writeBufferToCache();
+    }
 );
 
 function mkdirs(svnDependency) {
@@ -136,7 +153,6 @@ function buildDepObj(svnDependency, packageJsonDeps) {
     out.COPath = out.repo;
 
     out.installDir = "."+out.name+"-package";
-    // out.installDir = "../."+out.name+"-package";
 
 	return out;
 }
@@ -174,33 +190,6 @@ function checkout(svnDependency) {
 					return callback(error ? result : null)
 				}
 			)
-
-			// --- svn ultimate
-			// const svnOption = {
-			// 	trustServerCert: true,
-			// 	username: svnOptions.username,
-			// 	password: svnOptions.password,
-			// 	quiet: true,
-			// 	force: true,
-			// 	revision: svnDependency.rev,
-			// 	ignoreExternals: false,
-			// 	depth: '', // Valore valido
-			// };
-
-			// svnCommand.commands.checkout(
-			// 	svnUrl,
-			// 	svnPath,
-			// 	svnOption,
-			// 	function( error ) {
-			// 		console.log(
-			// 			colors.green("Checkout finished!"),
-			// 			colors.yellow(svnDependency.name),
-			// 			"rev=" + svnDependency.rev,
-			// 			"from", svnDependency.COPath
-			// 		);
-			// 		return callback(error || null)
-			// 	}
-			// )
 		}
     }
 }
@@ -284,24 +273,6 @@ function cleanup(svnDependency) {
         	}
 		)
 
-		// --- svn ultimate
-		// const svnOption = {
-		// 	username: svnOptions.username,	// same as --username
-		// 	password: svnOptions.password,	// same as --password
-		// }
-		// return svnCommand.commands.cleanup(
-		// 	svnPath,
-		// 	svnOption,
-		// 	function (error) {
-				// console.log(
-				// 	colors.cyan("Cleanup finished!"),
-				// 	colors.yellow(svnDependency.name),
-				// 	"installDirPath=", svnPath
-				// );
-
-		// 		return callback(error || null)
-		// 	}
-		// )
     }
 }
 
@@ -346,7 +317,11 @@ function npmInstall(svnDependency) {
 				env: env
 			},
 			function (error) {
-				console.log(colors.bgWhite.blue("Install finished, " + error));
+				console.log(colors.bgWhite.blue("Install finished, " + fileTgz));
+				if(error) {
+					console.log(colors.red("Install failed! " + error));
+
+				}
 				const pathModule = path.resolve(rootDir, svnDependency.installDir)
 				rimraf(
 					pathModule,
@@ -368,6 +343,7 @@ function info(svnDependency, callback) {
 
         if (!error) {
 			console.log(colors.green("\nInstalled ") + colors.yellow(svnDependency.name) + "|" + svnDependency.rev);
+			console.log("\n-------\n");
 		}
 
         if (0 === --numDependencies) {
