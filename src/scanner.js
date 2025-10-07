@@ -111,7 +111,7 @@ function installAllPackages() {
     console.log(colors.bgWhite.black("Installing all packages from: "), tgzFiles.join(" "));
 
     // Crea il comando per installare tutti i file .tgz
-    const command = `npm install ${tgzFiles.join(" ")} --no-save --no-package-lock --legacy-peer-deps`;
+    const command = `npm install ${tgzFiles.join(" ")} --no-save --no-package-lock`;
 
 	console.log(colors.bgWhite.black("Installing command -> "), command);
     child_process.exec(command, { stdio: "inherit" }, (error) => {
