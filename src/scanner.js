@@ -263,7 +263,9 @@ function checkout(svnDependency) {
 			callback(null);
 		} else {
 
-			const svnUrl = svnDependency.COPath
+			const svnUrl = (svnDependency.rev && svnDependency.rev !== "HEAD") ? `${svnDependency.COPath}@${svnDependency.rev}` : svnDependency.COPath;
+			console.log( colors.yellow("SVN url --> "), svnUrl)
+			
 			const svnPath = path.resolve(rootDir, svnDependency.installDir)
 			const svnOption = Object.assign({ revision: svnDependency.rev }, svnOptions)
 
